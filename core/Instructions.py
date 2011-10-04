@@ -30,7 +30,6 @@ from core.helpers.GlobalMApp import mApp
 from core.helpers.TimeKeeper import TimeKeeper
 from core.helpers.TypeCheckers import check_for_nonempty_string_or_none, check_for_nonempty_string, check_for_path_or_none
 import os
-import sys
 import traceback
 import types
 
@@ -338,7 +337,15 @@ class Instructions( InstructionsBase ):
 
 			for plugin in self.getPlugins():
 				if plugin.isEnabled():
-					self._safeCall( plugin, methodName, catchExceptions = plugin.isOptional() )
+					catchExceptions = False
+					if plugin.isOptional():
+						# do not abort build if optional plugins crash
+						catchExceptions = True
+					if phase in [self.Phase.Report, self.Phase.Notify, self.Phase.ShutDown]:
+						# do not abort build when plugins crash in these phases
+						catchExceptions = True
+
+					self._call( plugin, methodName, catchExceptions = catchExceptions )
 
 	def runPrepare( self ):
 		self._runPhase( self.Phase.Prepare )
@@ -399,23 +406,25 @@ class Instructions( InstructionsBase ):
 	def runShutDowns( self ):
 		self._runPhase( self.Phase.ShutDown )
 
-	def _safeCall( self, object, methodName, catchExceptions = False ):
-		"""Run \param method for each object in \param objectList
+	def _call( self, mObject, methodName, catchExceptions = False ):
+		"""Run method on mObject
 
-		\note The List objectList must contain MObjects only!"""
+		\param mObject MObject instance
+		\param catchExceptions Catch exceptions thrown by mObject.methodName()
+		"""
 
-		assert isinstance( object, MObject )
+		assert isinstance( mObject, MObject )
 
 		# run
 		try:
-			method = getattr( object, methodName )
+			method = getattr( mObject, methodName )
 			method()
 		except Exception as e:
 			text = u'''\
 An error occurred during {0}: "{1}"
 Offending module: "{2}"'''.format( method.__name__,
 		unicode( e ),
-		object.getName()
+		mObject.getName()
  )
 			mApp().error( self, text )
 			mApp().error( self, traceback.format_exc() )
